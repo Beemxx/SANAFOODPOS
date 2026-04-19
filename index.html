@@ -46,6 +46,33 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // =============================================
+// EXPOSE FIREBASE FUNCTIONS KE WINDOW
+// agar script biasa (non-module) bisa pakai getDocs, query, dll
+// =============================================
+window.db = db;
+window.getDocs = getDocs;
+window.getDoc = getDoc;
+window.addDoc = addDoc;
+window.setDoc = setDoc;
+window.updateDoc = updateDoc;
+window.deleteDoc = deleteDoc;
+window.collection = collection;
+window.doc = doc;
+window.query = query;
+window.where = where;
+window.orderBy = orderBy;
+window.onSnapshot = onSnapshot;
+window.serverTimestamp = serverTimestamp;
+window.Timestamp = Timestamp;
+window.writeBatch = writeBatch;
+window.limit = limit;
+window.runTransaction = runTransaction;
+
+// Fungsi helper untuk baca/tulis variabel global dari module scope
+const _g = (k) => window[k];
+const _s = (k, v) => { window[k] = v; return v; };
+
+// =============================================
 // FIREBASE CLOUD MESSAGING (FCM) - Setup
 // =============================================
 let messaging = null;
@@ -228,8 +255,7 @@ window.startListenNotifQueue = function startListenNotifQueue() {
     collection(db, 'notifQueue'),
     where('targetRole', '==', 'dapur'),
     where('processed', '==', false),
-    orderBy('createdAt', 'desc'),
-    limit(10)
+    limit(20)
   );
   notifQueueUnsubscribe = onSnapshot(q, (snap) => {
     snap.docChanges().forEach(async (change) => {
@@ -319,6 +345,46 @@ const COLS = {
   bahan: 'bahan',
   resep: 'resep',
 };
+// =============================================
+// EXPOSE SEMUA FUNGSI & VARIABEL KE WINDOW
+// Agar script biasa (non-module) bisa akses
+// ATURAN: setiap fungsi baru di module script
+//         wajib ditambahkan di sini!
+// =============================================
+
+// Firestore instance & collections
+window.COLS = COLS;
+window.db = db;
+
+// Helper converters
+window.docToObj = docToObj;
+window.tsToDate = tsToDate;
+
+// Firestore functions (sudah di-expose di atas, pastikan semua ada)
+window.getDocs = getDocs;
+window.getDoc = getDoc;
+window.addDoc = addDoc;
+window.setDoc = setDoc;
+window.updateDoc = updateDoc;
+window.deleteDoc = deleteDoc;
+window.collection = collection;
+window.doc = doc;
+window.query = query;
+window.where = where;
+window.orderBy = orderBy;
+window.onSnapshot = onSnapshot;
+window.serverTimestamp = serverTimestamp;
+window.Timestamp = Timestamp;
+window.writeBatch = writeBatch;
+window.limit = limit;
+window.runTransaction = runTransaction;
+
+// Internal helper functions yang dibutuhkan script biasa
+window.triggerDapurNotification = triggerDapurNotification;
+window.loadAllDataFromFirestore = loadAllDataFromFirestore;
+window.loadOrdersFromFirestore = loadOrdersFromFirestore;
+window.saveFcmToken = saveFcmToken;
+window.ensureSeeded = ensureSeeded;
 
 // =============================================
 // FIRESTORE HELPER FUNCTIONS
@@ -346,7 +412,7 @@ function docToObj(docSnap) {
 // =============================================
 
 // SEED: cek apakah collection kosong, jika iya isi dengan demo data
-window._db = db;
+window._db = db; // expose db ke console
 window._COLS = COLS;
 window._docToObj = docToObj;
 
@@ -375,6 +441,20 @@ async function ensureSeeded(colName, demoData) {
 // =============================================
 // LOAD ALL DATA FROM FIRESTORE
 // =============================================
+
+// Safety init — pastikan semua variabel global ada sebelum dipakai
+if (!window.outletSettings) window.outletSettings = { nama:'Sana Food', tagline:'', alamat:'', telp:'', header:'', footer:'Terima kasih!' };
+if (!window.menuItems) window.menuItems = [];
+if (!window.categories) window.categories = [];
+if (!window.users) window.users = [];
+if (!window.titipanItems) window.titipanItems = [];
+if (!window.titipanLog) window.titipanLog = [];
+if (!window.expenses) window.expenses = [];
+if (!window.bahanData) window.bahanData = [];
+if (!window.resepData) window.resepData = [];
+if (!window.demoOrders) window.demoOrders = [];
+if (!window.activeOrders) window.activeOrders = [];
+
 async function loadAllDataFromFirestore() {
   const [menuSnap, catSnap, userSnap, titipanSnap, titipanLogSnap, expSnap, settSnap, bahanSnap, resepSnap] = await Promise.all([
     getDocs(collection(db, COLS.menu)),
@@ -388,19 +468,22 @@ async function loadAllDataFromFirestore() {
     getDocs(collection(db, COLS.resep)),
   ]);
 
-  menuItems = menuSnap.docs.map(docToObj);
-  categories = catSnap.docs.map(docToObj);
-  users = userSnap.docs.map(docToObj);
-  titipanItems = titipanSnap.docs.map(docToObj);
-  titipanLog = titipanLogSnap.docs.map(docToObj);
-  expenses = expSnap.docs.map(docToObj);
-  bahanData = bahanSnap.docs.map(docToObj);
-  resepData = resepSnap.docs.map(docToObj);
+  window.menuItems = menuSnap.docs.map(docToObj);
+  window.categories = catSnap.docs.map(docToObj);
+  window.users = userSnap.docs.map(docToObj);
+  window.titipanItems = titipanSnap.docs.map(docToObj);
+  window.titipanLog = titipanLogSnap.docs.map(docToObj);
+  window.expenses = expSnap.docs.map(docToObj);
+  window.bahanData = bahanSnap.docs.map(docToObj);
+  window.resepData = resepSnap.docs.map(docToObj);
 
   // Outlet settings
   if (!settSnap.empty) {
     const s = settSnap.docs[0].data();
-    Object.assign(outletSettings, s);
+    if (s && typeof s === 'object') {
+      if (!window.outletSettings) window.outletSettings = {};
+      Object.assign(window.outletSettings, s);
+    }
   }
 
   // Load orders (semua, untuk dashboard & riwayat)
@@ -411,17 +494,23 @@ async function loadOrdersFromFirestore() {
   // Fetch active orders TANPA limit — supaya tidak ada order dapur yang terpotong
   const [activeSnap, historySnap] = await Promise.all([
     getDocs(query(collection(db, COLS.orders),
-      where('status', 'in', ['cooking', 'ready']),
-      orderBy('createdAt', 'desc'))),
+      where('status', 'in', ['cooking', 'ready']))),
     getDocs(query(collection(db, COLS.orders),
       where('status', '==', 'done'),
       orderBy('createdAt', 'desc'), limit(500)))
   ]);
+  const sortByCreatedAt = (a, b) => {
+    const ta = a.data ? (a.data().createdAt?.seconds || 0) : (a.createdAt ? new Date(a.createdAt).getTime()/1000 : 0);
+    const tb = b.data ? (b.data().createdAt?.seconds || 0) : (b.createdAt ? new Date(b.createdAt).getTime()/1000 : 0);
+    return tb - ta;
+  };
+  activeSnap.docs.sort(sortByCreatedAt);
+  historySnap.docs.sort(sortByCreatedAt);
   const activeArr = activeSnap.docs.map(docToObj);
   const historyArr = historySnap.docs.map(docToObj);
-  demoOrders = [...activeArr, ...historyArr];
-  activeOrders = activeArr;
-  lastKnownOrderCount = activeOrders.length;
+  window.demoOrders = [...activeArr, ...historyArr];
+  window.activeOrders = activeArr;
+  window.lastKnownOrderCount = activeOrders.length;
 }
 
 // =============================================
@@ -429,29 +518,44 @@ async function loadOrdersFromFirestore() {
 // =============================================
 let ordersUnsubscribe = null;
 
+// =============================================
+// HELPER: Fetch orders dari Firestore by date range
+// =============================================
+window.fetchOrdersDone = async function(fromDate, toDate) {
+  // fromDate, toDate = string 'YYYY-MM-DD'
+  // Firestore dateStr field dipakai agar tidak butuh composite index
+  const snap = await getDocs(query(
+    collection(db, COLS.orders),
+    where('status', '==', 'done'),
+    where('dateStr', '>=', fromDate),
+    where('dateStr', '<=', toDate)
+  ));
+  return snap.docs.map(docToObj).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+};
+
 window.startOrdersRealtime = function startOrdersRealtime() {
   if (ordersUnsubscribe) ordersUnsubscribe();
   // Dua query terpisah:
   // 1. Active orders (cooking/ready) — TANPA limit agar tidak ada yang hilang
   // 2. History orders (done) — limit 500 untuk performa
+  // Tidak pakai orderBy pada where query — hindari composite index
   const qActive = query(collection(db, COLS.orders),
-    where('status', 'in', ['cooking', 'ready']),
-    orderBy('createdAt', 'desc'));
+    where('status', 'in', ['cooking', 'ready']));
   const qHistory = query(collection(db, COLS.orders),
     where('status', '==', 'done'),
     orderBy('createdAt', 'desc'), limit(500));
 
   let activeSnap = [], historySnap = [];
   const merge = () => {
-    demoOrders = [...activeSnap, ...historySnap];
-    activeOrders = activeSnap; // sudah filtered dari query
+    window.demoOrders = [...activeSnap, ...historySnap];
+    window.activeOrders = activeSnap; // sudah filtered dari query
   };
 
   ordersUnsubscribe = onSnapshot(qActive, (snap) => {
     const prevActiveIds = new Set(activeOrders.map(o => o.id));
     activeSnap = snap.docs.map(docToObj);
     merge();
-    activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
+    window.activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
     
     // Deteksi order baru untuk notifikasi dapur
     const newActive = activeOrders.filter(o => !prevActiveIds.has(o.id) && o.status === 'cooking');
@@ -542,7 +646,7 @@ window.submitOrder = async function() {
 
     // Tambahkan ke local array sementara (realtime listener akan sync)
     demoOrders.unshift({ ...orderData, _isNew: true });
-    activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
+    window.activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
     // pendingDapurNotif hanya untuk role dapur — kasir/admin tidak perlu banner dapur
     if (currentUser && currentUser.role === 'dapur') pendingDapurNotif++;
 
@@ -554,7 +658,7 @@ window.submitOrder = async function() {
     if (titipanSold.length) toast(`📦 Stok dikurangi: ${titipanSold.map(x => x.nama + ' ×' + x.qty).join(', ')}`, 'info');
 
     showStruk({ ...orderData, id: orderId });
-    cart = [];
+    window.cart = [];
     document.getElementById('cart-customer').value = '';
     document.getElementById('cash-input').value = '';
     renderCart(); reRenderQtyBadges(); renderMenuGrid(); renderActiveOrders(); renderKds(); updateOrderBadge(); loadDashboard();
@@ -595,7 +699,7 @@ window.updateOrderStatus = async function(id, status) {
     if (status === 'done' && orderObj && currentUser.role === 'dapur') {
       printThermalDapur(orderObj);
     }
-    activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
+    window.activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
     renderActiveOrders(); renderKds(); updateOrderBadge(); loadDashboard();
     toast(status === 'ready' ? 'Order siap saji! ✅' : status === 'done' ? 'Order selesai! ✅' : status === 'cancelled' ? 'Order dibatalkan' : 'Diperbarui', 'success');
   } catch (e) { toast('Gagal update: ' + e.message, 'error'); }
@@ -607,7 +711,7 @@ window.selesaikanOrder = async function(orderId) {
     await updateDoc(doc(db, COLS.orders, orderId), { status: 'done', doneAt: serverTimestamp() });
     const idx = demoOrders.findIndex(o => o.id === orderId);
     if (idx >= 0) { demoOrders[idx].status = 'done'; demoOrders[idx].doneAt = new Date(); }
-    activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
+    window.activeOrders = demoOrders.filter(o => o.status === 'cooking' || o.status === 'ready');
     closeStruk(); renderActiveOrders(); renderKds(); updateOrderBadge(); loadDashboard();
     toast('Order diselesaikan! ✅', 'success');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
@@ -635,7 +739,7 @@ window.saveMenu = async function(menuId) {
 window.confirmDeleteMenu = async function(menuId) {
   try {
     await deleteDoc(doc(db, COLS.menu, menuId));
-    menuItems = menuItems.filter(m => m.id !== menuId);
+    window.menuItems = menuItems.filter(m => m.id !== menuId);
     closeModal(); renderMenuGrid(); renderSettingsMenu(); toast('Dihapus', 'warn');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
 };
@@ -660,7 +764,7 @@ window.saveCat = async function(catId) {
 window.confirmDeleteCat = async function(catId) {
   try {
     await deleteDoc(doc(db, COLS.categories, catId));
-    categories = categories.filter(c => c.id !== catId);
+    window.categories = categories.filter(c => c.id !== catId);
     closeModal(); renderCatFilter(); renderSettingsCat(); toast('Dihapus', 'warn');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
 };
@@ -692,7 +796,7 @@ window.saveUser = async function(userId) {
 window.confirmDeleteUser = async function(userId) {
   try {
     await deleteDoc(doc(db, COLS.users, userId));
-    users = users.filter(u => u.id !== userId);
+    window.users = users.filter(u => u.id !== userId);
     closeModal(); renderSettingsUsers(); toast('User dihapus', 'warn');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
 };
@@ -755,7 +859,7 @@ window.setTersediaTitipan = async function(id, val) {
 window.confirmDeleteTitipan = async function(id) {
   try {
     await deleteDoc(doc(db, COLS.titipan, id));
-    titipanItems = titipanItems.filter(x => x.id !== id);
+    window.titipanItems = titipanItems.filter(x => x.id !== id);
     closeModal(); renderTitipan(); renderMenuGrid(); toast('Titipan dihapus', 'warn');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
 };
@@ -786,7 +890,7 @@ window.saveExpense = async function(expId) {
 window.confirmDeleteExpense = async function(expId) {
   try {
     await deleteDoc(doc(db, COLS.expenses, expId));
-    expenses = expenses.filter(e => e.id !== expId);
+    window.expenses = expenses.filter(e => e.id !== expId);
     closeModal(); renderPengeluaran(); toast('Dihapus', 'warn');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
 };
@@ -803,7 +907,7 @@ window.saveOutletSettings = async function() {
   };
   try {
     await setDoc(doc(db, COLS.settings, 'outlet'), data);
-    Object.assign(outletSettings, data);
+    Object.assign(window.outletSettings, data);
     toast('Pengaturan disimpan! ✅', 'success');
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
 };
@@ -820,12 +924,12 @@ window.saveBahan = async function(bahanId) {
   try {
     if (bahanId) {
       await updateDoc(doc(db, COLS.bahan, bahanId), data);
-      const idx = bahanData.findIndex(x => x.id === bahanId);
-      if (idx >= 0) Object.assign(bahanData[idx], data);
+      const idx = window.bahanData.findIndex(x => x.id === bahanId);
+      if (idx >= 0) Object.assign(window.bahanData[idx], data);
       toast('Bahan diupdate ✅', 'success');
     } else {
       const ref = await addDoc(collection(db, COLS.bahan), data);
-      bahanData.push({ id: ref.id, ...data });
+      window.bahanData.push({ id: ref.id, ...data });
       toast('Bahan ditambahkan ✅', 'success');
     }
     closeModal(); renderBahanTable(); renderHppDaftar(); renderAnalisaMargin();
@@ -835,7 +939,7 @@ window.saveBahan = async function(bahanId) {
 window.confirmDeleteBahan = async function(bahanId) {
   try {
     await deleteDoc(doc(db, COLS.bahan, bahanId));
-    bahanData = bahanData.filter(x => x.id !== bahanId);
+    window.bahanData = window.bahanData.filter(x => x.id !== bahanId);
     closeModal(); toast('Bahan dihapus', 'info');
     renderBahanTable(); renderHppDaftar(); renderAnalisaMargin();
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
@@ -855,12 +959,12 @@ window.saveResep = async function(resepId) {
   try {
     if (resepId) {
       await updateDoc(doc(db, COLS.resep, resepId), data);
-      const idx = resepData.findIndex(x => x.id === resepId);
-      if (idx >= 0) Object.assign(resepData[idx], data);
+      const idx = window.resepData.findIndex(x => x.id === resepId);
+      if (idx >= 0) Object.assign(window.resepData[idx], data);
       toast('Resep berhasil diupdate ✅', 'success');
     } else {
       const ref = await addDoc(collection(db, COLS.resep), data);
-      resepData.push({ id: ref.id, ...data });
+      window.resepData.push({ id: ref.id, ...data });
       toast('Resep berhasil dibuat ✅', 'success');
     }
     resepRowCount = 1;
@@ -871,7 +975,7 @@ window.saveResep = async function(resepId) {
 window.confirmDeleteResep = async function(resepId) {
   try {
     await deleteDoc(doc(db, COLS.resep, resepId));
-    resepData = resepData.filter(x => x.id !== resepId);
+    window.resepData = window.resepData.filter(x => x.id !== resepId);
     closeModal(); toast('Resep dihapus', 'info');
     renderHppDaftar(); renderAnalisaMargin(); renderKalkulatorInit();
   } catch (e) { toast('Gagal: ' + e.message, 'error'); }
@@ -880,7 +984,7 @@ window.confirmDeleteResep = async function(resepId) {
 // =============================================
 // LOGIN — Cek dari Firestore
 // =============================================
-window.doLogin = async function() {
+window.doLogin = window._firebaseDoLogin = async function() {
   const u = document.getElementById('login-user').value.trim();
   const p = document.getElementById('login-pass').value;
   const errEl = document.getElementById('login-error');
@@ -897,8 +1001,8 @@ window.doLogin = async function() {
       showLoading(false);
       return;
     }
-    currentUser = docToObj(snap.docs[0]);
-    sessionStorage.setItem('sana_food_user', JSON.stringify(currentUser));
+    window.currentUser = docToObj(snap.docs[0]);
+    sessionStorage.setItem('sana_food_user', JSON.stringify(window.currentUser));
     await loadAllDataFromFirestore();
     showLoading(false);
     afterLogin();
@@ -927,13 +1031,22 @@ async function initFirebase() {
   }
 }
 
+// =============================================
+// TANDAI FIREBASE MODULE SUDAH SIAP
+// Script biasa akan menunggu event ini sebelum
+// memanggil fungsi yang butuh Firebase
+// =============================================
+window._firebaseReady = true;
+document.dispatchEvent(new Event('firebase-ready'));
+console.log('[Firebase] Module siap — semua fungsi sudah di-expose ke window');
+
 // Cek session yang tersimpan
 (async function() {
   await initFirebase();
   const saved = sessionStorage.getItem('sana_food_user');
   if (saved) {
     try {
-      currentUser = JSON.parse(saved);
+      window.currentUser = JSON.parse(saved);
       showLoading(true, 'Memuat data...');
       await loadAllDataFromFirestore();
       showLoading(false);
@@ -956,7 +1069,7 @@ window.confirmLogout = function() {
   if (clockInterval) clearInterval(clockInterval);
   if (kdsInterval) clearInterval(kdsInterval);
   stopDapurAutoRefresh();
-  currentUser = null; cart = [];
+  window.currentUser = null; window.cart = [];
   sessionStorage.removeItem('sana_food_user');
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app').style.display = 'none';
@@ -980,9 +1093,9 @@ window.loadRiwayat = async function() {
   const el = document.getElementById('riwayat-list');
   el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   try {
-    const q = query(collection(db, COLS.orders), where('dateStr','==', date), orderBy('createdAt','desc'));
+    const q = query(collection(db, COLS.orders), where('dateStr','==', date));
     const snap = await getDocs(q);
-    const orders = snap.docs.map(docToObj);
+    const orders = snap.docs.map(docToObj).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
     if (!orders.length) { el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📜</div><div class="empty-state-text">Tidak ada order pada tanggal ini</div></div>'; return; }
     el.innerHTML = orders.map(o => {
       const badgeClass = { done:'badge-done', cancelled:'badge-cancelled', ready:'badge-ready', cooking:'badge-cooking' }[o.status] || 'badge-cooking';
@@ -2534,28 +2647,38 @@ tbody tr:hover{background:var(--surface2)}
 const demoMode = false; // Firebase aktif
 
 // =============================================
+// HELPER: Tunggu Firebase module siap
+// Dipakai untuk semua fungsi yang butuh Firebase
+// =============================================
+function onFirebaseReady(cb) {
+  if (window._firebaseReady) { cb(); return; }
+  document.addEventListener('firebase-ready', cb, { once: true });
+}
+window.onFirebaseReady = onFirebaseReady;
+
+// =============================================
 // GLOBALS
 // =============================================
-let currentUser = null;
-let cart = [];
-let selectedPM = 'tunai';
-let menuItems = [];
-let categories = [];
-let users = [];
-let titipanItems = [];    // item titipan
-let titipanLog = [];      // log transaksi titipan
-let expenses = [];        // pengeluaran operasional
-let activeOrders = [];
-let demoOrders = [];
-let demoOrderSeq = 1;
-let filterCatId = null;
+window.currentUser = window.currentUser ?? null;
+window.cart = window.cart ?? [];
+window.selectedPM = window.selectedPM ?? 'tunai';
+window.menuItems = window.menuItems ?? [];
+window.categories = window.categories ?? [];
+window.users = window.users ?? [];
+window.titipanItems = window.titipanItems ?? []; // item titipan
+window.titipanLog = window.titipanLog ?? []; // log transaksi titipan
+window.expenses = window.expenses ?? []; // pengeluaran operasional
+window.activeOrders = window.activeOrders ?? [];
+window.demoOrders = window.demoOrders ?? [];
+window.demoOrderSeq = window.demoOrderSeq ?? 1;
+window.filterCatId = window.filterCatId ?? null;
 let currentReportFilter = 'today';
 let bepChart = null;
-let clockInterval = null;
-let kdsInterval = null;
-let pendingDapurNotif = 0;
-let lastKnownOrderCount = 0;
-let outletSettings = { nama:'Sana Food', tagline:'', alamat:'', telp:'', header:'', footer:'Terima kasih sudah makan di Sana Food! 🍳' };
+window.clockInterval = window.clockInterval ?? null;
+window.kdsInterval = window.kdsInterval ?? null;
+window.pendingDapurNotif = window.pendingDapurNotif ?? 0;
+window.lastKnownOrderCount = window.lastKnownOrderCount ?? 0;
+window.outletSettings = window.outletSettings ?? { nama:'Sana Food', tagline:'', alamat:'', telp:'', header:'', footer:'Terima kasih sudah makan di Sana Food! 🍳' };
 
 // =============================================
 // BLUETOOTH THERMAL PRINTER — GLOBALS
@@ -2713,8 +2836,28 @@ function startClock() {
 window.togglePwd=function(){ const el=document.getElementById('login-pass'); el.type=el.type==='password'?'text':'password'; };
 
 window.doLogin=function(){
-  // Override oleh Firebase module — fungsi ini tidak dipakai
-  console.warn('doLogin dipanggil dari script lama, harusnya Firebase module yang handle');
+  // Tunggu Firebase module siap — pakai onFirebaseReady agar tidak race condition
+  const errEl = document.getElementById('login-error');
+  if(!window._firebaseReady){
+    errEl.textContent = 'Menghubungkan ke database, harap tunggu...';
+    errEl.style.display = 'block';
+    onFirebaseReady(function(){
+      errEl.style.display = 'none';
+      if(window._firebaseDoLogin){
+        window._firebaseDoLogin();
+      } else {
+        errEl.textContent = 'Gagal terhubung ke database. Coba reload halaman.';
+        errEl.style.display = 'block';
+      }
+    });
+    return;
+  }
+  if(window._firebaseDoLogin){
+    window._firebaseDoLogin();
+  } else {
+    errEl.textContent = 'Gagal terhubung ke database. Coba reload halaman.';
+    errEl.style.display = 'block';
+  }
 };
 
 window.doLogout=function(){
@@ -2793,7 +2936,7 @@ function showPage(name){
   if(name==='settings') renderSettingsMenu();
   if(name==='orders') renderActiveOrders();
   if(name==='titipan') renderTitipan();
-  if(name==='pengeluaran'){setExpRange('month');renderPengeluaran();}
+  if(name==='pengeluaran'){setExpRange('month');renderPengeluaran();} // async ok
   if(name==='neraca'){setNeracaRange('month');}
   if(name==='hpp'){renderHpp();}
 }
@@ -3308,13 +3451,30 @@ window.confirmDeleteTitipan=function(id){titipanItems=titipanItems.filter(x=>x.i
 // =============================================
 // DASHBOARD
 // =============================================
-window.loadDashboard=function(){
+window.loadDashboard=async function(){
   const todayStr=today();
-  const todayOrders=demoOrders.filter(o=>new Date(o.createdAt).toISOString().slice(0,10)===todayStr);
-  const doneOrders=todayOrders.filter(o=>o.status==='done');
-  const omset=doneOrders.reduce((s,o)=>s+o.total,0);
-  const active=todayOrders.filter(o=>o.status==='cooking'||o.status==='ready').length;
+  const d7=new Date(); d7.setDate(d7.getDate()-6);
+  const d7Str=d7.toISOString().slice(0,10);
 
+  // Ambil semua orders sekaligus, filter di client — hindari composite index
+  const allOrdersSnap = await getDocs(collection(db, COLS.orders));
+  const allOrders = allOrdersSnap.docs.map(docToObj);
+  const allDone = allOrders.filter(o => {
+    if(o.status !== 'done') return false;
+    const ds = o.dateStr || (o.createdAt ? new Date(o.createdAt).toISOString().slice(0,10) : null);
+    return !!ds;
+  });
+  const doneOrders = allDone.filter(o => {
+    const ds = o.dateStr || new Date(o.createdAt).toISOString().slice(0,10);
+    return ds === todayStr;
+  });
+  const weekOrders = allDone.filter(o => {
+    const ds = o.dateStr || new Date(o.createdAt).toISOString().slice(0,10);
+    return ds >= d7Str && ds <= todayStr;
+  });
+  const active = activeOrders.length; // dari realtime listener
+
+  const omset=doneOrders.reduce((s,o)=>s+o.total,0);
   const withTime=doneOrders.filter(o=>o.readyAt&&o.createdAt);
   let cookMins=0;
   if(withTime.length){const avg=withTime.reduce((s,o)=>(s+(new Date(o.readyAt)-new Date(o.createdAt))/60000),0)/withTime.length;cookMins=Math.round(avg);}
@@ -3326,12 +3486,10 @@ window.loadDashboard=function(){
   document.getElementById('dash-active').textContent=active;
   document.getElementById('dash-done').textContent=doneOrders.length;
 
-  // Titipan rendah
   const titipanLow=titipanItems.filter(t=>t.stok<=5).length;
   document.getElementById('dash-titipan-low').textContent=titipanLow;
   document.getElementById('dash-titipan-sub').textContent=titipanLow>0?`${titipanLow} item perlu restock`:'Semua aman';
 
-  // Top menu
   const menuCount={};
   doneOrders.forEach(o=>o.items.forEach(i=>{menuCount[i.nama]=(menuCount[i.nama]||0)+i.qty;}));
   const topMenu=Object.entries(menuCount).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -3341,27 +3499,25 @@ window.loadDashboard=function(){
   topMenuEl.innerHTML=`<div class="bar-chart-wrap">`+topMenu.map(([name,qty],i)=>`
     <div class="bar-item"><div class="bar-label">${['🥇','🥈','🥉','4️⃣','5️⃣'][i]} ${name}</div><div class="bar-track"><div class="bar-fill" style="width:${(qty/maxQ*100).toFixed(0)}%"></div></div><div class="bar-val">${qty} porsi</div></div>`).join('')+`</div>`;
 
-  // Pay breakdown
   const payCount={tunai:0,qris:0,transfer:0};
   doneOrders.forEach(o=>{if(payCount[o.paymentMethod]!==undefined)payCount[o.paymentMethod]+=o.total;});
   const totalPay=Object.values(payCount).reduce((a,b)=>a+b,0)||1;
   document.getElementById('dash-pay-breakdown').innerHTML=['tunai','qris','transfer'].map(pm=>`
     <div class="bar-item"><div class="bar-label">${pm==='tunai'?'💵 Tunai':pm==='qris'?'📱 QRIS':'🏦 Transfer'}</div><div class="bar-track"><div class="bar-fill orange" style="width:${(payCount[pm]/totalPay*100).toFixed(0)}%"></div></div><div class="bar-val">${fmt(payCount[pm])}</div></div>`).join('');
 
-  // 7 day chart
+  // 7 day chart dari data yang sudah difetch
   const weekData=[];
   for(let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i);
     const ds=d.toISOString().slice(0,10);
-    const val=demoOrders.filter(o=>new Date(o.createdAt).toISOString().slice(0,10)===ds&&o.status==='done').reduce((s,o)=>s+o.total,0);
+    const val=weekOrders.filter(o=>o.dateStr===ds).reduce((s,o)=>s+o.total,0);
     weekData.push({label:d.toLocaleDateString('id-ID',{weekday:'short'}),val});
   }
   const maxW=Math.max(...weekData.map(d=>d.val))||1;
   document.getElementById('dash-chart-week').innerHTML=weekData.map(d=>`
     <div class="bar-item"><div class="bar-label">${d.label}</div><div class="bar-track"><div class="bar-fill" style="width:${(d.val/maxW*100).toFixed(0)}%"></div></div><div class="bar-val">${d.val?fmt(d.val):'—'}</div></div>`).join('');
 
-  // Activity
-  const recentDone=[...doneOrders].reverse().slice(0,5);
+  const recentDone=[...doneOrders].slice(0,5);
   const actEl=document.getElementById('dash-activity');
   if(!recentDone.length){actEl.innerHTML='<div style="color:var(--ink3);font-size:13px;text-align:center;padding:20px">Belum ada aktivitas</div>';return;}
   actEl.innerHTML=recentDone.map(o=>{
@@ -3378,12 +3534,25 @@ window.loadDashboard=function(){
 // =============================================
 window.setReportFilter=function(f,el){currentReportFilter=f;document.querySelectorAll('.report-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');loadLaporan();};
 
-window.loadLaporan=function(){
-  let filtered=demoOrders.filter(o=>o.status==='done');
+window.loadLaporan=async function(){
   const now=new Date();
-  if(currentReportFilter==='today') filtered=filtered.filter(o=>new Date(o.createdAt).toISOString().slice(0,10)===today());
-  else if(currentReportFilter==='week'){const d7=new Date(now);d7.setDate(d7.getDate()-6);filtered=filtered.filter(o=>new Date(o.createdAt)>=d7);}
-  else{const dm=new Date(now.getFullYear(),now.getMonth(),1);filtered=filtered.filter(o=>new Date(o.createdAt)>=dm);}
+  let fromStr, toStr=today();
+  if(currentReportFilter==='today') fromStr=toStr;
+  else if(currentReportFilter==='week'){const d7=new Date(now);d7.setDate(d7.getDate()-6);fromStr=d7.toISOString().slice(0,10);}
+  else{fromStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';}
+
+  // Ambil SEMUA orders lalu filter di client — hindari composite index issue
+  const snapAll = await getDocs(collection(db, COLS.orders));
+  const allOrders = snapAll.docs.map(docToObj);
+  console.log('[Laporan] Total semua orders:', allOrders.length, '| Status sample:', allOrders[0]?.status, '| dateStr sample:', allOrders[0]?.dateStr, '| createdAt sample:', allOrders[0]?.createdAt);
+  
+  const filtered = allOrders.filter(o => {
+    if(o.status !== 'done') return false;
+    const ds = o.dateStr || (o.createdAt ? new Date(o.createdAt).toISOString().slice(0,10) : null);
+    if(!ds) return false;
+    return ds >= fromStr && ds <= toStr;
+  });
+  console.log('[Laporan] Setelah filter (done + tanggal):', filtered.length);
 
   const omset=filtered.reduce((s,o)=>s+o.total,0);
   const avg=filtered.length?omset/filtered.length:0;
@@ -3437,7 +3606,12 @@ function setExpRange(r){
   document.getElementById('exp-from').value=from; document.getElementById('exp-to').value=to;
 }
 
-function renderPengeluaran(){
+async function renderPengeluaran(){
+  // Refresh expenses dari Firestore setiap kali ditampilkan
+  try {
+    const snap = await getDocs(collection(db, COLS.expenses));
+    expenses = snap.docs.map(docToObj);
+  } catch(e) { console.warn('[Pengeluaran] Gagal fetch:', e); }
   const from=document.getElementById('exp-from')?.value||'2000-01-01';
   const to=document.getElementById('exp-to')?.value||today();
   const filtered=expenses.filter(e=>e.tanggal>=from&&e.tanggal<=to);
@@ -3496,19 +3670,9 @@ window.openExpenseModal=function(){
      <button class="btn btn-primary" onclick="saveExpense()">Simpan</button>`);
 };
 
-window.saveExpense=function(){
-  const desc=document.getElementById('exp-desc').value.trim();
-  const amount=parseFloat(document.getElementById('exp-amount').value)||0;
-  const date=document.getElementById('exp-date').value;
-  if(!desc){toast('Deskripsi wajib diisi!','warn');return;}
-  if(amount<=0){toast('Nominal harus lebih dari 0!','warn');return;}
-  expenses.push({id:genId('EXP'),tanggal:date,kategori:document.getElementById('exp-cat').value||'lainnya',periode:document.getElementById('exp-period').value,deskripsi:desc,nominal:amount,createdBy:currentUser.nama,createdAt:new Date()});
-  closeModal(); renderPengeluaran(); toast('Pengeluaran disimpan!','success');
-};
-
-window.deleteExpense=function(id){
-  expenses=expenses.filter(x=>x.id!==id); renderPengeluaran(); toast('Dihapus','warn');
-};
+// saveExpense & deleteExpense dihandle oleh Firebase module di atas (baris ~740)
+// Versi lokal ini di-disable agar tidak override
+// window.saveExpense & window.deleteExpense sudah async ke Firestore
 
 // =============================================
 // NERACA
@@ -3519,12 +3683,18 @@ function setNeracaRange(r){
   else if(r==='year') from=d.getFullYear()+'-01-01';
   else from='2000-01-01';
   document.getElementById('ner-from').value=from; document.getElementById('ner-to').value=to;
-  renderNeraca();
+  renderNeraca(); // async — fire & forget ok
 }
 
-window.renderNeraca=function(){
+window.renderNeraca=async function(){
   const from=document.getElementById('ner-from').value, to=document.getElementById('ner-to').value;
-  const filteredOrders=demoOrders.filter(o=>o.status==='done'&&new Date(o.createdAt).toISOString().slice(0,10)>=from&&new Date(o.createdAt).toISOString().slice(0,10)<=to);
+  // Fetch orders dari Firestore by dateStr range
+  const [orderSnap, expSnap] = await Promise.all([
+    getDocs(query(collection(db,COLS.orders), where('status','==','done'), where('dateStr','>=',from), where('dateStr','<=',to))),
+    getDocs(collection(db,COLS.expenses))
+  ]);
+  const filteredOrders = orderSnap.docs.map(docToObj);
+  expenses = expSnap.docs.map(docToObj); // update local cache
   const filteredExp=expenses.filter(e=>e.tanggal>=from&&e.tanggal<=to);
 
   // Revenue
@@ -3587,8 +3757,14 @@ window.renderNeraca=function(){
 // =============================================
 // PROYEKSI BEP
 // =============================================
-window.renderBEP=function(){
-  const allDone=demoOrders.filter(o=>o.status==='done');
+window.renderBEP=async function(){
+  // Fetch semua order done dari Firestore untuk akurasi BEP
+  const [orderSnap, expSnap] = await Promise.all([
+    getDocs(query(collection(db,COLS.orders), where('status','==','done'))),
+    getDocs(collection(db,COLS.expenses))
+  ]);
+  const allDone = orderSnap.docs.map(docToObj);
+  expenses = expSnap.docs.map(docToObj);
   if(!allDone.length){
     document.getElementById('bep-stats').innerHTML='<div class="alert alert-warn" style="grid-column:1/-1">⚠️ Belum ada data penjualan. Lakukan beberapa transaksi terlebih dahulu.</div>';
     return;
@@ -4220,8 +4396,7 @@ function startDapurAutoRefresh(){
       // Fetch active orders langsung dari Firestore — pastikan tidak ada yang hilang
       const snap = await getDocs(query(
         collection(db, COLS.orders),
-        where('status', 'in', ['cooking', 'ready']),
-        orderBy('createdAt', 'desc')
+        where('status', 'in', ['cooking', 'ready'])
       ));
       const freshActive = snap.docs.map(docToObj);
       // Merge ke demoOrders tanpa hapus history
@@ -4334,8 +4509,8 @@ let demoResep = [
   },
 ];
 
-let bahanData = [...demoBahan];
-let resepData = [...demoResep];
+window.bahanData = window.bahanData ?? [];
+window.resepData = window.resepData ?? [];
 
 const BAHAN_CATEGORIES = {
   bahan_pokok:{label:'Bahan Pokok',icon:'🌾'},

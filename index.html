@@ -1957,8 +1957,33 @@ tbody tr:hover{background:var(--surface2)}
 
   .main { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
   .page { display: none !important; flex: 1 !important; overflow: hidden !important; flex-direction: column !important; min-height: 0 !important; }
-  .page.active { display: flex !important; }
-  .page-scroll { padding: 16px !important; flex: 1; overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; }
+  .page.active { display: flex !important; overflow: hidden !important; }
+
+  /* page-scroll: wadah scroll utama untuk semua halaman */
+  .page-scroll {
+    padding: 16px !important;
+    flex: 1 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Halaman yang TIDAK pakai .page-scroll — scroll langsung di .page.active */
+  #page-settings.active,
+  #page-pengeluaran.active,
+  #page-neraca.active,
+  #page-titipan.active,
+  #page-laporan.active,
+  #page-riwayat.active,
+  #page-hpp.active,
+  #page-orders.active,
+  #page-dashboard.active {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
 
   .grid-4 { grid-template-columns: 1fr 1fr !important; gap: 12px; }
   .grid-3 { grid-template-columns: 1fr 1fr 1fr !important; gap: 12px; }
@@ -2029,7 +2054,14 @@ tbody tr:hover{background:var(--surface2)}
   .settings-tabs { padding: 0 16px; overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
   .settings-tabs::-webkit-scrollbar { display: none; }
   .settings-tab { padding: 11px 14px; font-size: 12px; white-space: nowrap; }
-  .settings-content { padding: 16px; }
+  .settings-content {
+    padding: 16px;
+    flex: 1 !important;
+    overflow-y: auto !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
 
   .hpp-tabs { flex-wrap: wrap; gap: 6px; }
   .hpp-tab { font-size: 12px; padding: 6px 14px; }
